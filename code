@@ -1,0 +1,252 @@
+# ============================================================
+# SUPERMARKET BILLING ANALYSIS - DAE PROJECT
+# ============================================================
+
+import pandas as pd
+import matplotlib.pyplot as plt
+from google.colab import files
+
+from sklearn.model_selection import train_test_split
+from sklearn.compose import ColumnTransformer
+from sklearn.preprocessing import StandardScaler, OneHotEncoder
+from sklearn.pipeline import Pipeline
+from sklearn.linear_model import LogisticRegression
+from sklearn.metrics import (
+    accuracy_score, precision_score, recall_score,
+    f1_score, confusion_matrix, classification_report
+)
+
+# 1. UPLOAD & LOAD DATASET
+uploaded = files.upload()
+file = list(uploaded.keys())[0]
+df = pd.read_csv(file)
+
+print("Dataset Shape:", df.shape)
+display(df.head())
+
+# 2. DATA INSPECTION
+print("\nMissing Values:", df.isnull().sum().sum())
+print("Duplicate Rows:", df.duplicated().sum())
+
+# 3. DATA CLEANING
+df = df.drop_duplicates()
+
+for col in df.columns:
+    if df[col].isnull().sum() > 0:
+        if df[col].dtype == 'object':
+            df[col] = df[col].fillna(df[col].mode()[0])
+        else:
+            df[col] = df[col].fillna(df[col].median())
+
+print("\nAfter Cleaning:")
+print("Shape:", df.shape)
+print("Missing Values:", df.isnull().sum().sum())
+print("Duplicates:", df.duplicated().sum())
+
+# 4. TARGET ANALYSIS
+# Convert Sales into Low / High Sales
+df['Sales_Category'] = pd.qcut(
+    df['Sales'],
+    q=2,
+    labels=['Low Sales', 'High Sales']
+)
+
+target = 'Sales_Category'
+
+print("\nTarget Distribution:")
+print(df[target].value_counts())
+
+df[target].value_counts().plot(kind='bar')
+plt.title("Sales Distribution")
+plt.xlabel("Sales Category")
+plt.ylabel("Count")
+plt.show()
+
+# 5. EDA - CATEGORY
+if 'Category' in df.columns:
+    pd.crosstab(
+        df['Category'], df[target],
+        normalize='index'
+    ).plot(kind='bar', figsize=(8,5))
+
+    plt.title("Sales by Category")
+    plt.ylabel("Percentage")
+    plt.tight_layout()
+    plt.show()
+
+# 6. EDA - SEGMENT
+if 'Segment' in df.columns:
+    pd.crosstab(
+        df['Segment'], df[target],
+        normalize='index'
+    ).plot(kind='bar', figsize=(8,5))
+
+    plt.title("Sales by Customer Segment")
+    plt.ylabel("Percentage")
+    plt.tight_layout()
+    plt.show()
+
+# 7. POSTAL CODE
+if 'Postal Code' in df.columns:
+    df.boxplot(column='Postal Code', by=target)
+    plt.title("Postal Code vs Sales")
+    plt.suptitle("")
+    plt.show()
+
+# 8. ROW ID
+if 'Row ID' in df.columns:
+    df.boxplot(column='Row ID', by=target)
+    plt.title("Row ID vs Sales")
+    plt.suptitle("")
+    plt.show()
+
+# 9. SALES
+if 'Sales' in df.columns:
+    df.boxplot(column='Sales', by=target)
+    plt.title("Sales Amount vs Sales Category")
+    plt.suptitle("")
+    plt.show()
+
+# 10. CORRELATION
+print("\nCorrelation with Target:")
+
+df_corr = df.copy()
+
+df_corr[target] = df_corr[target].astype('category').cat.codes
+
+print(
+    df_corr.select_dtypes('number')
+    .corr()[target]
+    .sort_values(ascending=False)
+)
+
+plt.figure(figsize=(12,8))
+
+num_df = df_corr.select_dtypes('number')
+
+plt.imshow(num_df.corr())
+plt.colorbar()
+
+plt.title("Correlation Heatmap")
+
+plt.xticks(
+    range(len(num_df.columns)),
+    num_df.columns,
+    rotation=90
+)
+
+plt.yticks(
+    range(len(num_df.columns)),
+    num_df.columns
+)
+
+plt.tight_layout()
+plt.show()
+
+# 11. MACHINE LEARNING
+
+# Remove original Sales to avoid data leakage
+X = df.drop(columns=[target, 'Sales'])
+y = df[target]
+
+# Remove ID columns
+X = X.drop(
+    columns=[
+        'Row ID',
+        'Order ID',
+        'Customer ID',
+        'Customer Name',
+        'Product ID',
+        'Product Name'
+    ],
+    errors='ignore'
+)
+
+num = X.select_dtypes('number').columns
+cat = X.select_dtypes(exclude='number').columns
+
+preprocess = ColumnTransformer([
+    ('num', StandardScaler(), num),
+    ('cat', OneHotEncoder(handle_unknown='ignore'), cat)
+])
+
+X_train, X_test, y_train, y_test = train_test_split(
+    X, y,
+    test_size=0.20,
+    random_state=42,
+    stratify=y
+)
+
+# 12. LOGISTIC REGRESSION
+model = Pipeline([
+    ('preprocess', preprocess),
+    ('model', LogisticRegression(max_iter=1000))
+])
+
+model.fit(X_train, y_train)
+pred = model.predict(X_test)
+
+# 13. MODEL RESULTS
+accuracy = accuracy_score(y_test, pred)
+
+precision = precision_score(
+    y_test,
+    pred,
+    average='weighted',
+    zero_division=0
+)
+
+recall = recall_score(
+    y_test,
+    pred,
+    average='weighted',
+    zero_division=0
+)
+
+f1 = f1_score(
+    y_test,
+    pred,
+    average='weighted',
+    zero_division=0
+)
+
+print("\n========== MODEL RESULTS ==========")
+print(f"Accuracy  : {accuracy*100:.2f}%")
+print(f"Precision : {precision*100:.2f}%")
+print(f"Recall    : {recall*100:.2f}%")
+print(f"F1 Score  : {f1*100:.2f}%")
+
+# 14. CLASSIFICATION REPORT
+print("\nClassification Report:")
+print(
+    classification_report(
+        y_test,
+        pred,
+        zero_division=0
+    )
+)
+
+# 15. CONFUSION MATRIX
+print("\nConfusion Matrix:")
+
+cm = confusion_matrix(y_test, pred)
+print(cm)
+
+plt.figure(figsize=(6,5))
+plt.imshow(cm)
+
+plt.title("Confusion Matrix")
+plt.xlabel("Predicted")
+plt.ylabel("Actual")
+plt.colorbar()
+
+plt.show()
+
+# 16. SAVE CLEANED DATASET
+df.to_csv(
+    "cleaned_supermarket_dataset.csv",
+    index=False
+)
+
+print("\nCleaned dataset saved successfully!")
+print("PROJECT COMPLETED SUCCESSFULLY")
